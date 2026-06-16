@@ -1,3 +1,4 @@
+app_code = """
 import streamlit as st
 import os
 from langchain_community.document_loaders import PyPDFDirectoryLoader
@@ -6,7 +7,6 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
-from langchain_core.runnables import RunnablePassthrough
 from langchain_groq import ChatGroq
 
 # ── Page config ──────────────────────────────────────────
@@ -30,7 +30,7 @@ def build_pipeline():
     # 2. Chunk
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=1000, chunk_overlap=200,
-        separators=["\n\n", "\n", ". ", " ", ""]
+        separators=["\\n\\n", "\\n", ". ", " ", ""]
     )
     chunks = splitter.split_documents(documents)
 
@@ -41,11 +41,11 @@ def build_pipeline():
         encode_kwargs={"normalize_embeddings": True}
     )
 
-    # 4. Vector store + MMR retriever
+    # 4. Vector store + MMR retriever (Expanded net for multi-hop tables)
     vectorstore = FAISS.from_documents(chunks, embeddings)
     retriever   = vectorstore.as_retriever(
         search_type="mmr",
-        search_kwargs={"k": 5, "fetch_k": 20, "lambda_mult": 0.7}
+        search_kwargs={"k": 10, "fetch_k": 30, "lambda_mult": 0.7}
     )
 
     # 5. LLM
@@ -56,68 +56,73 @@ def build_pipeline():
         api_key=GROQ_API_KEY
     )
 
-    # 6. Prompts
+    # 6. Prompts (Ultra-Concise for Semantic Scoring)
     RAG_PROMPT = ChatPromptTemplate.from_template(
-        """You are the HR assistant for Zyro Dynamics Pvt. Ltd.
-Answer using ONLY the HR policy documents below.
+        \"\"\"You are a precise HR Help Desk assistant. Zyro Dynamics and Acrux Dynamics are the same company.
+Answer the user's question using ONLY the provided context.
 
-Rules:
-- Be specific: include exact numbers, durations, procedures
-- Cite the policy document name
-- Do NOT use outside knowledge
-- If not in context, say: I can only answer HR-related questions from Zyro Dynamics policy documents.
+CRITICAL RULES FOR SEMANTIC SCORING:
+1. START IMMEDIATELY: Do not use introductory phrases like "According to the policy", "Based on the context", or "The documents state". Just give the answer.
+2. NO METADATA: Do NOT output document codes, names, or page numbers.
+3. CONCISE: Be as brief and direct as possible. 
+4. EXACT MATH: Copy exact numbers, durations, and percentages.
+5. PARTIAL: If you only find half the answer, state what you found. Do not apologize for missing information.
 
 Context:
 {context}
 
 Question: {question}
-Answer:"""
+Answer:\"\"\"
     )
 
     OOS_PROMPT = ChatPromptTemplate.from_template(
-        """You are a classifier. Is this question related to Zyro Dynamics HR policies?
-HR topics: leave, salary, compensation, WFH, performance, code of conduct,
-POSH, onboarding, offboarding, travel expenses, IT security, benefits.
+        \"\"\"You are a strict binary classifier for an HR chatbot serving Zyro/Acrux Dynamics.
+
+Classify as IN_SCOPE if the question is about:
+- Leaves, maternity, sick leave, salary, payroll, CTC ranges, bonus targets, health insurance, WFH rules, performance reviews (PIP, APR), or general HR policies.
+
+Classify as OUT_OF_SCOPE if the question is about:
+- Individual stock options, ESOP vesting, or personal equity (like "how many stock options will I receive").
+- External recruitment or job applications.
+- Company revenue or financial performance.
+- Competitor companies (Zoho, Freshworks).
+- Product features or CRM tools.
 
 Question: {question}
-Reply with ONLY YES or NO:"""
+Respond with exactly ONE word: IN_SCOPE or OUT_OF_SCOPE.\"\"\"
     )
 
-    def format_docs(docs):
-        return "\n\n".join(
-            f"[{os.path.basename(doc.metadata.get('source','Policy')).replace('.pdf','').replace('_',' ')}]\n{doc.page_content}"
-            for doc in docs
-        )
-
-    def get_sources(docs):
-        return list({
-            os.path.basename(doc.metadata.get('source','Unknown')).replace('.pdf','').replace('_',' ')
-            for doc in docs
-        })
-
-    rag_chain = (
-        {"context": retriever | format_docs, "question": RunnablePassthrough()}
-        | RAG_PROMPT
-        | llm
-        | StrOutputParser()
-    )
-
+    # 7. Chains
+    prompt_chain = RAG_PROMPT | llm | StrOutputParser()
     classifier_chain = OOS_PROMPT | llm | StrOutputParser()
 
-    return retriever, rag_chain, classifier_chain
+    return retriever, prompt_chain, classifier_chain
+
+def format_docs(docs):
+    # Stripped metadata to prevent the LLM from reading it out loud
+    return "\\n\\n---\\n\\n".join(doc.page_content for doc in docs)
 
 REFUSAL = "I can only answer HR-related questions from Zyro Dynamics policy documents."
 
-def ask(question, retriever, rag_chain, classifier_chain):
+def ask(question, retriever, prompt_chain, classifier_chain):
+    # 1. Classify
     verdict = classifier_chain.invoke({"question": question}).strip().upper()
-    if verdict == "NO":
+    if "OUT_OF_SCOPE" in verdict:
         return REFUSAL, []
-    docs    = retriever.invoke(question)
+    
+    # 2. Query Enrichment (Ensures Acrux and Zyro docs are both found)
+    search_query = question + " Zyro Dynamics Acrux Dynamics"
+    docs = retriever.invoke(search_query)
+    
+    # 3. Format and extract sources for the UI
+    context = format_docs(docs)
     sources = list({
         os.path.basename(d.metadata.get('source','')).replace('.pdf','').replace('_',' ')
         for d in docs
     })
-    answer  = rag_chain.invoke(question)
+    
+    # 4. Generate Answer
+    answer = prompt_chain.invoke({"context": context, "question": question})
     return answer, sources
 
 # ── UI ───────────────────────────────────────────────────
@@ -157,7 +162,7 @@ for msg in st.session_state.messages:
                     st.write(f"• {s}")
 
 # Load pipeline
-retriever, rag_chain, classifier_chain = build_pipeline()
+retriever, prompt_chain, classifier_chain = build_pipeline()
 
 # Input
 if prompt := st.chat_input("Ask an HR question..."):
@@ -167,7 +172,7 @@ if prompt := st.chat_input("Ask an HR question..."):
 
     with st.chat_message("assistant"):
         with st.spinner("Searching HR policies..."):
-            answer, sources = ask(prompt, retriever, rag_chain, classifier_chain)
+            answer, sources = ask(prompt, retriever, prompt_chain, classifier_chain)
         st.write(answer)
         if sources:
             with st.expander("📎 Sources"):
@@ -179,3 +184,9 @@ if prompt := st.chat_input("Ask an HR question..."):
         "content": answer,
         "sources": sources
     })
+"""
+
+with open("app.py", "w") as f:
+    f.write(app_code.strip())
+
+print("app.py updated with maximum scoring optimizations.")
