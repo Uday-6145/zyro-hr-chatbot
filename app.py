@@ -1,4 +1,3 @@
-app_code = """
 import streamlit as st
 import os
 from langchain_community.document_loaders import PyPDFDirectoryLoader
@@ -9,150 +8,152 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_groq import ChatGroq
 
-# ── Page config ──────────────────────────────────────────
 st.set_page_config(
     page_title="Zyro Dynamics HR Assistant",
     page_icon="🏢",
     layout="wide"
 )
 
-# ── Constants ─────────────────────────────────────────────
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
-CORPUS_PATH  = "hr_docs/"
+CORPUS_PATH = "hr_docs/"
 
-# ── Cache: build pipeline once ───────────────────────────
+def get_api_key():
+    # Try st.secrets first (Streamlit Cloud), fall back to env var
+    try:
+        return st.secrets["GROQ_API_KEY"]
+    except Exception:
+        return os.environ.get("GROQ_API_KEY", "")
+
 @st.cache_resource(show_spinner="Loading HR documents...")
 def build_pipeline():
-    # 1. Load
-    loader    = PyPDFDirectoryLoader(CORPUS_PATH)
+    loader = PyPDFDirectoryLoader(CORPUS_PATH)
     documents = loader.load()
 
-    # 2. Chunk
     splitter = RecursiveCharacterTextSplitter(
-        chunk_size=1000, chunk_overlap=200,
-        separators=["\\n\\n", "\\n", ". ", " ", ""]
+        chunk_size=1000,
+        chunk_overlap=200,
+        separators=["\n\n", "\n", ". ", " ", ""]
     )
     chunks = splitter.split_documents(documents)
 
-    # 3. Embed
     embeddings = HuggingFaceEmbeddings(
         model_name="sentence-transformers/all-MiniLM-L6-v2",
         model_kwargs={"device": "cpu"},
         encode_kwargs={"normalize_embeddings": True}
     )
 
-    # 4. Vector store + MMR retriever (Expanded net for multi-hop tables)
     vectorstore = FAISS.from_documents(chunks, embeddings)
-    retriever   = vectorstore.as_retriever(
+    retriever = vectorstore.as_retriever(
         search_type="mmr",
-        search_kwargs={"k": 10, "fetch_k": 30, "lambda_mult": 0.7}
+        search_kwargs={"k": 8, "fetch_k": 30, "lambda_mult": 0.7}  # matches best Kaggle config
     )
 
-    # 5. LLM
+    # ✅ Fixed: groq_api_key (not api_key), called at runtime not cache time
     llm = ChatGroq(
         model="llama-3.3-70b-versatile",
-        temperature=0.1,
+        temperature=0,
         max_tokens=1024,
-        api_key=GROQ_API_KEY
+        groq_api_key=get_api_key()  # ← was api_key=GROQ_API_KEY
     )
 
-    # 6. Prompts (Ultra-Concise for Semantic Scoring)
-    RAG_PROMPT = ChatPromptTemplate.from_template(
-        \"\"\"You are a precise HR Help Desk assistant. Zyro Dynamics and Acrux Dynamics are the same company.
-Answer the user's question using ONLY the provided context.
+    RAG_PROMPT = ChatPromptTemplate.from_messages([
+        ("system", """You are a precise HR Help Desk assistant.
+CRITICAL: Acrux Dynamics and Zyro Dynamics are the same company. Answer questions about either using the provided documents.
+Answer ONLY using information in the context below.
 
-CRITICAL RULES FOR SEMANTIC SCORING:
-1. START IMMEDIATELY: Do not use introductory phrases like "According to the policy", "Based on the context", or "The documents state". Just give the answer.
-2. NO METADATA: Do NOT output document codes, names, or page numbers.
-3. CONCISE: Be as brief and direct as possible. 
-4. EXACT MATH: Copy exact numbers, durations, and percentages.
-5. PARTIAL: If you only find half the answer, state what you found. Do not apologize for missing information.
+RULES:
+1. NO INTROS: Never say "According to the policy" or "Based on the context". Start directly with the facts.
+2. NO METADATA: Do not mention document codes, page numbers, or file names.
+3. EXACT FIGURES: Always include specific numbers, dates, percentages, and durations verbatim.
+4. COMPLETE: If asked two things, answer both.
+5. BULLETS: Use bullet points for eligibility conditions or multi-step processes.
 
 Context:
-{context}
+{context}"""),
+        ("human", "{question}")
+    ])
 
-Question: {question}
-Answer:\"\"\"
-    )
-
-    OOS_PROMPT = ChatPromptTemplate.from_template(
-        \"\"\"You are a strict binary classifier for an HR chatbot serving Zyro/Acrux Dynamics.
+    OOS_PROMPT = ChatPromptTemplate.from_messages([
+        ("system", """You are a strict binary classifier for an HR chatbot.
 
 Classify as IN_SCOPE if the question is about:
-- Leaves, maternity, sick leave, salary, payroll, CTC ranges, bonus targets, health insurance, WFH rules, performance reviews (PIP, APR), or general HR policies.
+- Leave policies (EL, SL, maternity, paternity)
+- Salary, payroll, CTC, compensation, grades, bonuses
+- Work from home, hybrid, remote work
+- Performance reviews, APR, PIP, ratings
+- Code of conduct, ethics, discipline
+- POSH, sexual harassment prevention
+- Onboarding, probation, offboarding
+- Travel reimbursements, expenses
+- IT security, device policy
+- Company profile, culture, benefits, PF, gratuity, insurance
 
-Classify as OUT_OF_SCOPE if the question is about:
-- Individual stock options, ESOP vesting, or personal equity (like "how many stock options will I receive").
-- External recruitment or job applications.
-- Company revenue or financial performance.
-- Competitor companies (Zoho, Freshworks).
-- Product features or CRM tools.
+Classify as OUT_OF_SCOPE if about:
+- Individual stock options, ESOP vesting, or personal equity
+- Stock prices, financial markets
+- Company revenue, financial performance
+- Product features, sales, CRM tools
+- Recruitment, hiring process, job applications
+- Competitor comparisons (Zoho, Freshworks, TCS, etc.)
+- Sports, weather, general knowledge, coding, math, science
+- Questions about policies at OTHER companies
 
-Question: {question}
-Respond with exactly ONE word: IN_SCOPE or OUT_OF_SCOPE.\"\"\"
-    )
+Focus ONLY on the topic, not the company name.
+Respond with ONLY: IN_SCOPE or OUT_OF_SCOPE"""),
+        ("human", "{question}")
+    ])
 
-    # 7. Chains
     prompt_chain = RAG_PROMPT | llm | StrOutputParser()
     classifier_chain = OOS_PROMPT | llm | StrOutputParser()
 
     return retriever, prompt_chain, classifier_chain
 
+
 def format_docs(docs):
-    # Stripped metadata to prevent the LLM from reading it out loud
-    return "\\n\\n---\\n\\n".join(doc.page_content for doc in docs)
+    return "\n\n---\n\n".join(doc.page_content for doc in docs)
+
 
 REFUSAL = "I can only answer HR-related questions from Zyro Dynamics policy documents."
 
+
 def ask(question, retriever, prompt_chain, classifier_chain):
-    # 1. Classify
     verdict = classifier_chain.invoke({"question": question}).strip().upper()
     if "OUT_OF_SCOPE" in verdict:
         return REFUSAL, []
-    
-    # 2. Query Enrichment (Ensures Acrux and Zyro docs are both found)
-    search_query = question + " Zyro Dynamics Acrux Dynamics"
-    docs = retriever.invoke(search_query)
-    
-    # 3. Format and extract sources for the UI
+
+    docs = retriever.invoke(question)
     context = format_docs(docs)
     sources = list({
-        os.path.basename(d.metadata.get('source','')).replace('.pdf','').replace('_',' ')
+        os.path.basename(d.metadata.get('source', '')).replace('.pdf', '').replace('_', ' ')
         for d in docs
     })
-    
-    # 4. Generate Answer
     answer = prompt_chain.invoke({"context": context, "question": question})
     return answer, sources
 
-# ── UI ───────────────────────────────────────────────────
+
+# ── UI ────────────────────────────────────────────────────
 st.title("🏢 Zyro Dynamics HR Assistant")
 st.caption("Ask me anything about Zyro Dynamics HR policies")
 
 with st.sidebar:
     st.header("📚 Available Policies")
-    policies = [
+    for p in [
         "Company Profile", "Employee Handbook", "Leave Policy",
         "Work From Home Policy", "Code of Conduct",
         "Performance Review Policy", "Compensation & Benefits",
         "IT & Data Security", "Prevention of Sexual Harassment",
         "Onboarding & Separation", "Travel & Expense Policy"
-    ]
-    for p in policies:
+    ]:
         st.write(f"• {p}")
     st.divider()
     st.info("💡 This bot answers only from official Zyro Dynamics HR documents.")
 
-# Chat history
 if "messages" not in st.session_state:
-    st.session_state.messages = []
-    st.session_state.messages.append({
+    st.session_state.messages = [{
         "role": "assistant",
         "content": "Hello! I'm the Zyro Dynamics HR Assistant. Ask me about leave, WFH, salary, benefits, or any other HR policy!",
         "sources": []
-    })
+    }]
 
-# Display history
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.write(msg["content"])
@@ -161,10 +162,8 @@ for msg in st.session_state.messages:
                 for s in msg["sources"]:
                     st.write(f"• {s}")
 
-# Load pipeline
 retriever, prompt_chain, classifier_chain = build_pipeline()
 
-# Input
 if prompt := st.chat_input("Ask an HR question..."):
     st.session_state.messages.append({"role": "user", "content": prompt, "sources": []})
     with st.chat_message("user"):
@@ -184,9 +183,3 @@ if prompt := st.chat_input("Ask an HR question..."):
         "content": answer,
         "sources": sources
     })
-"""
-
-with open("app.py", "w") as f:
-    f.write(app_code.strip())
-
-print("app.py updated with maximum scoring optimizations.")
