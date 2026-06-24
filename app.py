@@ -8,22 +8,68 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_groq import ChatGroq
 
+
 st.set_page_config(
-    page_title="Zyro Dynamics HR Assistant",
-    page_icon="🏢",
-    layout="wide"
+    page_title="Zyro Dynamics HR",
+    layout="centered"
 )
+
+
+st.markdown("""
+    <style>
+        #MainMenu {visibility: hidden;}
+        footer {visibility: hidden;}
+        header {visibility: hidden;}
+        
+        .main-title {
+            font-size: 2.25rem;
+            font-weight: 600;
+            color: #0f172a; /* Slate 900 */
+            margin-bottom: 0.25rem;
+            letter-spacing: -0.02em;
+        }
+        
+        .sub-title {
+            font-size: 1rem;
+            color: #64748b; /* Slate 500 */
+            margin-bottom: 2rem;
+            border-bottom: 1px solid #e2e8f0;
+            padding-bottom: 1rem;
+        }
+        
+        [data-testid="stSidebar"] {
+            background-color: #f8fafc;
+            border-right: 1px solid #e2e8f0;
+        }
+        
+        .sidebar-header {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: #64748b;
+            font-weight: 600;
+            margin-bottom: 1rem;
+        }
+        
+        /* Clean up the source expanders */
+        .streamlit-expanderHeader {
+            font-size: 0.85rem !important;
+            color: #475569 !important;
+            background-color: transparent !important;
+            border: none !important;
+        }
+    </style>
+""", unsafe_allow_html=True)
 
 CORPUS_PATH = "hr_docs/"
 
 def get_api_key():
-    # Try st.secrets first (Streamlit Cloud), fall back to env var
     try:
         return st.secrets["GROQ_API_KEY"]
     except Exception:
         return os.environ.get("GROQ_API_KEY", "")
 
-@st.cache_resource(show_spinner="Loading HR documents...")
+@st.cache_resource(show_spinner="Initializing knowledge base...")
 def build_pipeline():
     loader = PyPDFDirectoryLoader(CORPUS_PATH)
     documents = loader.load()
@@ -44,15 +90,14 @@ def build_pipeline():
     vectorstore = FAISS.from_documents(chunks, embeddings)
     retriever = vectorstore.as_retriever(
         search_type="mmr",
-        search_kwargs={"k": 8, "fetch_k": 30, "lambda_mult": 0.7}  # matches best Kaggle config
+        search_kwargs={"k": 8, "fetch_k": 30, "lambda_mult": 0.7} 
     )
 
-    # ✅ Fixed: groq_api_key (not api_key), called at runtime not cache time
     llm = ChatGroq(
         model="llama-3.3-70b-versatile",
         temperature=0,
         max_tokens=1024,
-        groq_api_key=get_api_key()  # ← was api_key=GROQ_API_KEY
+        groq_api_key=get_api_key() 
     )
 
     RAG_PROMPT = ChatPromptTemplate.from_messages([
@@ -107,13 +152,10 @@ Respond with ONLY: IN_SCOPE or OUT_OF_SCOPE"""),
 
     return retriever, prompt_chain, classifier_chain
 
-
 def format_docs(docs):
     return "\n\n---\n\n".join(doc.page_content for doc in docs)
 
-
-REFUSAL = "I can only answer HR-related questions from Zyro Dynamics policy documents."
-
+REFUSAL = "This request falls outside the designated scope. I am programmed to assist exclusively with internal HR policies and guidelines for Zyro Dynamics."
 
 def ask(question, retriever, prompt_chain, classifier_chain):
     verdict = classifier_chain.invoke({"question": question}).strip().upper()
@@ -130,54 +172,67 @@ def ask(question, retriever, prompt_chain, classifier_chain):
     return answer, sources
 
 
-# ── UI ────────────────────────────────────────────────────
-st.title("🏢 Zyro Dynamics HR Assistant")
-st.caption("Ask me anything about Zyro Dynamics HR policies")
+
+
+st.markdown('<div class="main-title">Zyro Dynamics HR Portal</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-title">Internal Policy & Compliance Assistant</div>', unsafe_allow_html=True)
 
 with st.sidebar:
-    st.header("📚 Available Policies")
-    for p in [
-        "Company Profile", "Employee Handbook", "Leave Policy",
-        "Work From Home Policy", "Code of Conduct",
-        "Performance Review Policy", "Compensation & Benefits",
-        "IT & Data Security", "Prevention of Sexual Harassment",
-        "Onboarding & Separation", "Travel & Expense Policy"
-    ]:
-        st.write(f"• {p}")
+    st.markdown('<div class="sidebar-header">Knowledge Base Directory</div>', unsafe_allow_html=True)
+    
+    
+    st.markdown("""
+    - Company Profile
+    - Employee Handbook
+    - Leave Policy
+    - Work From Home Policy
+    - Code of Conduct
+    - Performance Review
+    - Compensation & Benefits
+    - IT & Data Security
+    - Prevention of Sexual Harassment
+    - Onboarding & Separation
+    - Travel & Expense
+    """)
+    
     st.divider()
-    st.info("💡 This bot answers only from official Zyro Dynamics HR documents.")
+    
+    st.caption("System restricts responses to verified internal documents only.")
+
+retriever, prompt_chain, classifier_chain = build_pipeline()
 
 if "messages" not in st.session_state:
     st.session_state.messages = [{
         "role": "assistant",
-        "content": "Hello! I'm the Zyro Dynamics HR Assistant. Ask me about leave, WFH, salary, benefits, or any other HR policy!",
+        "content": "Welcome. I am the Zyro Dynamics HR Assistant. Please enter your query regarding internal policies, benefits, or compliance.",
         "sources": []
     }]
 
+# Display chat history 
+# By NOT passing an avatar parameter, Streamlit uses its default, clean SVG silhouettes
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.write(msg["content"])
         if msg.get("sources"):
-            with st.expander("📎 Sources"):
+            with st.expander("View Source Citations"):
                 for s in msg["sources"]:
-                    st.write(f"• {s}")
+                    st.caption(f"- {s}")
 
-retriever, prompt_chain, classifier_chain = build_pipeline()
-
-if prompt := st.chat_input("Ask an HR question..."):
+if prompt := st.chat_input("Enter your query regarding HR policies..."):
     st.session_state.messages.append({"role": "user", "content": prompt, "sources": []})
     with st.chat_message("user"):
         st.write(prompt)
 
     with st.chat_message("assistant"):
-        with st.spinner("Searching HR policies..."):
+        with st.spinner("Retrieving policy data..."):
             answer, sources = ask(prompt, retriever, prompt_chain, classifier_chain)
+            
         st.write(answer)
         if sources:
-            with st.expander("📎 Sources"):
+            with st.expander("View Source Citations"):
                 for s in sources:
-                    st.write(f"• {s}")
-
+                    st.caption(f"- {s}")
+                    
     st.session_state.messages.append({
         "role": "assistant",
         "content": answer,
