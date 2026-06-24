@@ -20,9 +20,9 @@ from langchain_groq import ChatGroq
 
 st.set_page_config(
 
-    page_title="Zyro Dynamics HR Assistant",
+    page_title="HR Assistant",
 
-    page_icon="🏢",
+    page_icon="",
 
     layout="wide"
 
@@ -96,7 +96,6 @@ def build_pipeline():
 
 
 
-    # ✅ Fixed: groq_api_key (not api_key), called at runtime not cache time
 
     llm = ChatGroq(
 
@@ -106,7 +105,7 @@ def build_pipeline():
 
         max_tokens=1024,
 
-        groq_api_key=get_api_key()  # ← was api_key=GROQ_API_KEY
+        groq_api_key=get_api_key() 
 
     )
 
@@ -264,7 +263,7 @@ def ask(question, retriever, prompt_chain, classifier_chain):
 
 # ── UI ────────────────────────────────────────────────────
 
-st.title("🏢 Zyro Dynamics HR Assistant")
+st.title("Zyro Dynamics HR Assistant")
 
 st.caption("Ask me anything about Zyro Dynamics HR policies")
 
