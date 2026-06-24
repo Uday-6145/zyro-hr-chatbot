@@ -8,41 +8,54 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_groq import ChatGroq
 
-
+# 1. Page Config
 st.set_page_config(
     page_title="Zyro Dynamics HR",
     layout="centered"
 )
 
-
+# 2. Strict Corporate CSS Override
 st.markdown("""
     <style>
+        /* Hide default Streamlit noise */
+        header {visibility: hidden;}
         #MainMenu {visibility: hidden;}
         footer {visibility: hidden;}
-        header {visibility: hidden;}
         
-        .main-title {
-            font-size: 2.25rem;
-            font-weight: 600;
-            color: #0f172a; /* Slate 900 */
-            margin-bottom: 0.25rem;
-            letter-spacing: -0.02em;
+        /* FIX THE MASSIVE TOP GAP */
+        .block-container {
+            padding-top: 2rem !important;
+            padding-bottom: 2rem !important;
+            max-width: 850px !important; /* Perfect chat width */
         }
         
-        .sub-title {
+        /* Corporate Typography for Native H1 */
+        h1 {
+            font-size: 2.25rem !important;
+            font-weight: 600 !important;
+            color: #0f172a !important; /* Slate 900 */
+            padding-bottom: 0px !important;
+            margin-bottom: 0px !important;
+        }
+        
+        /* Subtitle Styling */
+        .corporate-subtitle {
             font-size: 1rem;
             color: #64748b; /* Slate 500 */
-            margin-bottom: 2rem;
+            margin-top: -10px;
+            margin-bottom: 25px;
+            padding-bottom: 15px;
             border-bottom: 1px solid #e2e8f0;
-            padding-bottom: 1rem;
         }
         
+        /* Sidebar Polish */
         [data-testid="stSidebar"] {
             background-color: #f8fafc;
             border-right: 1px solid #e2e8f0;
+            padding-top: 2rem;
         }
         
-        .sidebar-header {
+        .sidebar-title {
             font-size: 0.75rem;
             text-transform: uppercase;
             letter-spacing: 0.05em;
@@ -50,8 +63,8 @@ st.markdown("""
             font-weight: 600;
             margin-bottom: 1rem;
         }
-        
-        /* Clean up the source expanders */
+
+        /* Subtle expander styling for sources */
         .streamlit-expanderHeader {
             font-size: 0.85rem !important;
             color: #475569 !important;
@@ -60,6 +73,7 @@ st.markdown("""
         }
     </style>
 """, unsafe_allow_html=True)
+
 
 CORPUS_PATH = "hr_docs/"
 
@@ -171,15 +185,14 @@ def ask(question, retriever, prompt_chain, classifier_chain):
     answer = prompt_chain.invoke({"context": context, "question": question})
     return answer, sources
 
+# ── UI ────────────────────────────────────────────────────
 
-
-
-st.markdown('<div class="main-title">Zyro Dynamics HR Portal</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-title">Internal Policy & Compliance Assistant</div>', unsafe_allow_html=True)
+# Use native st.title but style it with the CSS injected above
+st.title("Zyro Dynamics HR Portal")
+st.markdown('<div class="corporate-subtitle">Internal Policy & Compliance Assistant</div>', unsafe_allow_html=True)
 
 with st.sidebar:
-    st.markdown('<div class="sidebar-header">Knowledge Base Directory</div>', unsafe_allow_html=True)
-    
+    st.markdown('<div class="sidebar-title">Knowledge Base Directory</div>', unsafe_allow_html=True)
     
     st.markdown("""
     - Company Profile
@@ -196,8 +209,7 @@ with st.sidebar:
     """)
     
     st.divider()
-    
-    st.caption("System restricts responses to verified internal documents only.")
+    st.caption("System restricts responses to verified internal documents only. Data is classified for internal use.")
 
 retriever, prompt_chain, classifier_chain = build_pipeline()
 
@@ -208,8 +220,6 @@ if "messages" not in st.session_state:
         "sources": []
     }]
 
-# Display chat history 
-# By NOT passing an avatar parameter, Streamlit uses its default, clean SVG silhouettes
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.write(msg["content"])
