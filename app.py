@@ -22,8 +22,6 @@ st.set_page_config(
 
     page_title="HR Assistant",
 
-    page_icon="",
-
     layout="wide"
 
 )
