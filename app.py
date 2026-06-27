@@ -111,7 +111,6 @@ st.markdown("""
             padding-top: 10px;
         }
         
-        /* 🚨 FIX FOR INVISIBLE TEXT ON STREAMLIT CLOUD 🚨 */
         /* Force chat text to be dark regardless of system theme */
         [data-testid="stChatMessageContent"] p, 
         [data-testid="stChatMessageContent"] div,
@@ -119,16 +118,24 @@ st.markdown("""
             color: #1A1A1A !important;
         }
         
-        /* Chat Input Styling */
+        /* 🚨 FIX FOR INVISIBLE CHAT INPUT TEXT 🚨 */
         [data-testid="stChatInput"] {
+            background-color: transparent !important;
+        }
+        [data-testid="stChatInput"] > div {
             border: 2px solid #2E5D4B !important;
-            border-radius: 0px !important; /* Square corners */
+            border-radius: 0px !important; 
             background-color: #FFFFFF !important;
         }
-        
-        /* Fix Chat Input Text Color */
         [data-testid="stChatInput"] textarea {
             color: #1A1A1A !important;
+            background-color: #FFFFFF !important;
+        }
+        [data-testid="stChatInput"] textarea::placeholder {
+            color: #888888 !important;
+        }
+        [data-testid="stChatInput"] button {
+            color: #2E5D4B !important;
         }
         
         /* Expander / Sources Styling */
@@ -263,13 +270,11 @@ def ask(question, retriever, prompt_chain, classifier_chain):
 # ── UI LAYOUT ──────────────────────────────────────────────
 
 with st.sidebar:
-    # Stacked Logo Mimicking "sci bot"
     st.markdown("""
         <div class="sidebar-logo">zyro<br>bot</div>
         <div class="sidebar-subtitle">AI-powered internal HR assistant</div>
     """, unsafe_allow_html=True)
     
-    # Square Stats Box
     st.markdown("""
         <div class="stats-box">
             <div class="stats-number">11</div>
@@ -279,7 +284,6 @@ with st.sidebar:
     
     st.markdown("<br><div style='font-size: 0.85rem; font-weight: bold; color: #2E5D4B;'>indexing:</div>", unsafe_allow_html=True)
     
-    # Clean text list of policies
     policies = [
         "Company Profile", "Employee Handbook", "Leave Policy",
         "Work From Home Policy", "Code of Conduct",
@@ -296,7 +300,6 @@ with st.sidebar:
     
     st.markdown("<br><br><div style='font-size: 0.7rem; color: #999;'>Powered by LangChain & Groq</div>", unsafe_allow_html=True)
 
-# Main Area Header
 st.markdown("""
     <div class="main-header">
         <span>ask me anything</span>
@@ -312,7 +315,6 @@ if "messages" not in st.session_state:
         "sources": []
     }]
 
-# Custom Avatars to match the minimal theme
 USER_AVATAR = "👤"
 BOT_AVATAR = "🟩"
 
