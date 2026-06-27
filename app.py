@@ -79,7 +79,7 @@ st.markdown("""
         /* Main Area Big Header */
         .main-header {
             font-size: 2.5rem;
-            color: #D3D3D3; /* Light gray like the screenshot */
+            color: #D3D3D3; /* Light gray */
             font-weight: 700;
             border-bottom: 2px solid #F0F0F0;
             padding-bottom: 10px;
@@ -111,11 +111,24 @@ st.markdown("""
             padding-top: 10px;
         }
         
+        /* 🚨 FIX FOR INVISIBLE TEXT ON STREAMLIT CLOUD 🚨 */
+        /* Force chat text to be dark regardless of system theme */
+        [data-testid="stChatMessageContent"] p, 
+        [data-testid="stChatMessageContent"] div,
+        [data-testid="stChatMessageContent"] li {
+            color: #1A1A1A !important;
+        }
+        
         /* Chat Input Styling */
         [data-testid="stChatInput"] {
             border: 2px solid #2E5D4B !important;
             border-radius: 0px !important; /* Square corners */
             background-color: #FFFFFF !important;
+        }
+        
+        /* Fix Chat Input Text Color */
+        [data-testid="stChatInput"] textarea {
+            color: #1A1A1A !important;
         }
         
         /* Expander / Sources Styling */
@@ -283,7 +296,7 @@ with st.sidebar:
     
     st.markdown("<br><br><div style='font-size: 0.7rem; color: #999;'>Powered by LangChain & Groq</div>", unsafe_allow_html=True)
 
-# Main Area Header Mimicking "ask me anything"
+# Main Area Header
 st.markdown("""
     <div class="main-header">
         <span>ask me anything</span>
