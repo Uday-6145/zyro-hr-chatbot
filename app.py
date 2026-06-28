@@ -299,15 +299,6 @@ with st.sidebar:
     st.markdown(policy_html, unsafe_allow_html=True)
     
     st.markdown("<br><br><div style='font-size: 0.7rem; color: #999;'>Powered by LangChain & Groq</div>", unsafe_allow_html=True)
-    
-    # --- DEBUG VISUALIZER ---
-    st.divider()
-    current_key = get_api_key()
-    if current_key and len(current_key) > 10:
-        masked_key = f"{current_key[:6]}.....{current_key[-4:]}"
-        st.warning(f"🔍 Active Key: {masked_key}")
-    else:
-        st.error("🚨 No API Key detected!")
 
 st.markdown("""
     <div class="main-header">
